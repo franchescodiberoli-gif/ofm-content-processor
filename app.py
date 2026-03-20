@@ -3,94 +3,109 @@ import telebot
 import random
 import streamlit as st
 from telebot import types
-from moviepy.editor import VideoFileClip, ColorClip, CompositeVideoClip, vfx
+from moviepy.editor import VideoFileClip, TextClip, CompositeVideoClip, vfx
 import PIL.Image
-
-# Parche para evitar el error de TikTok
-if not hasattr(PIL.Image, 'ANTIALIAS'):
-    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+import PIL.ImageDraw
+import PIL.ImageFont
 
 # --- CONFIGURACIÓN ---
 TOKEN = st.secrets["TELEGRAM_TOKEN"]
 bot = telebot.TeleBot(TOKEN)
-user_videos = {}
+user_data = {} # Aquí guardaremos el video y el estado del usuario
 
-# Asegurar carpetas
+# Crear carpetas
 for folder in ['VIDEO', 'US']:
     os.makedirs(folder, exist_ok=True)
 
-# --- FUNCIÓN DE EDICIÓN ---
-def triturar_pro(input_p, output_p, mode="norm"):
+# --- FUNCIÓN PARA CREAR VIDEOS CON TÍTULOS ---
+def crear_video_con_texto(input_p, texto, posicion):
     with VideoFileClip(input_p) as clip:
-        # Efectos base (Espejo + Rotación)
-        clip_final = clip.fx(vfx.mirror_x).rotate(random.choice([-2.5, 2.5]))
+        # Ajustamos el tamaño del texto según el ancho del video
+        fontsize = int(clip.w * 0.08)
         
-        if mode == "tk":
-            # Fondo azul de la agencia
-            fondo = ColorClip(size=(1080, 1920), color=(0, 102, 204)).set_duration(clip.duration)
-            clip_res = clip_final.resize(width=1080).set_position('center')
-            clip_final = CompositeVideoClip([fondo, clip_res])
-
-        clip_final.write_videofile(output_p, codec="libx264", audio_codec="aac", remove_temp=True, logger=None)
+        # Creamos el clip de texto
+        # 'method=caption' hace que el texto se ajuste al ancho
+        txt_clip = TextClip(texto, fontsize=fontsize, color='white', 
+                            font='Arial-Bold', method='caption', width=clip.w * 0.8)
+        
+        # Definimos la posición
+        pos_map = {
+            "arriba": ("center", 50),
+            "medio": ("center", "center"),
+            "abajo": ("center", clip.h - 150)
+        }
+        
+        txt_clip = txt_clip.set_start(0).set_duration(clip.duration).set_position(pos_map[posicion])
+        
+        # Combinamos
+        result = CompositeVideoClip([clip, txt_clip])
+        output_p = f"US/{posicion}_{os.path.basename(input_p)}"
+        result.write_videofile(output_p, codec="libx264", audio_codec="aac", logger=None)
+        return output_p
 
 # --- MANEJADORES TELEGRAM ---
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    # Mensaje exacto que pediste
     bot.send_message(message.chat.id, "manda un video para comenzar")
 
 @bot.message_handler(content_types=['video'])
 def handle_video(message):
-    # Guardamos el video actual
-    user_videos[message.chat.id] = message.video.file_id
+    user_data[message.chat.id] = {'file_id': message.video.file_id, 'step': 'menu'}
     
-    # Creamos el menú de opciones
     markup = types.InlineKeyboardMarkup(row_width=1)
     markup.add(
-        types.InlineKeyboardButton("🚀 Triturar Normal", callback_data="norm"),
-        types.InlineKeyboardButton("📱 Formato TikTok", callback_data="tk")
+        types.InlineKeyboardButton("⚙️ Triturar (Normal/TK)", callback_data="triturar"),
+        types.InlineKeyboardButton("📝 Añadir Títulos", callback_data="pedir_titulo")
     )
-    
-    # Mensaje exacto que pediste
     bot.send_message(message.chat.id, "video recibido. elige el modo:", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_query(call):
-    bot.answer_callback_query(call.id, "Procesando...")
     chat_id = call.message.chat.id
     
-    if chat_id not in user_videos:
-        bot.send_message(chat_id, "❌ Error: Por favor, manda el video de nuevo.")
-        return
+    if call.data == "pedir_titulo":
+        user_data[chat_id]['step'] = 'esperando_texto'
+        bot.send_message(chat_id, "✍️ Escribe el título que quieres ponerle al video:")
+        bot.answer_callback_query(call.id)
+    
+    elif call.data == "triturar":
+        # Aquí puedes mantener tu lógica anterior de triturado
+        bot.send_message(chat_id, "Usa el menú anterior para elegir Normal o TK (proceso en desarrollo)")
+        bot.answer_callback_query(call.id)
 
-    status = bot.send_message(chat_id, "⏳ Trabajando en el video... esto tardará unos segundos.")
-
+@bot.message_handler(func=lambda m: user_data.get(m.chat.id, {}).get('step') == 'esperando_texto')
+def procesar_titulo(message):
+    chat_id = message.chat.id
+    texto = message.text
+    file_id = user_data[chat_id]['file_id']
+    
+    status = bot.send_message(chat_id, f"⏳ Generando tus 3 videos con el título: '{texto}'...")
+    
     try:
-        file_info = bot.get_file(user_videos[chat_id])
+        # Descargar video
+        file_info = bot.get_file(file_id)
         downloaded = bot.download_file(file_info.file_path)
+        input_path = f"VIDEO/temp_{chat_id}.mp4"
         
-        in_path, out_path = f"VIDEO/in_{chat_id}.mp4", f"US/out_{chat_id}.mp4"
-
-        with open(in_path, 'wb') as f:
+        with open(input_path, 'wb') as f:
             f.write(downloaded)
-
-        triturar_pro(in_path, out_path, mode=call.data)
-
-        with open(out_path, 'rb') as v:
-            bot.send_video(chat_id, v, caption="🔥 Video procesado con éxito.")
         
-        # LIMPIEZA TOTAL para evitar que se trabe
-        os.remove(in_path)
-        os.remove(out_path)
+        # Generar las 3 versiones
+        posiciones = ["arriba", "medio", "abajo"]
+        for pos in posiciones:
+            path_editado = crear_video_con_texto(input_path, texto, pos)
+            with open(path_editado, 'rb') as v:
+                bot.send_video(chat_id, v, caption=f"✅ Título {pos}")
+            os.remove(path_editado)
+            
+        os.remove(input_path)
         bot.delete_message(chat_id, status.message_id)
+        bot.send_message(chat_id, "✨ ¡Listo! Aquí tienes tus 3 versiones.")
         
     except Exception as e:
-        bot.send_message(chat_id, f"❌ Se trabó el proceso: {str(e)}")
+        bot.send_message(chat_id, f"❌ Error al crear títulos: {str(e)}\n(Asegúrate de tener ImageMagick instalado o configurado)")
 
-# --- INTERFAZ STREAMLIT ---
-st.title("🤖 Servidor Agencia OFM")
-st.write("Estado: En línea y esperando videos.")
-
-# Reinicia el bot si se traba la conexión
-bot.infinity_polling(timeout=60, long_polling_timeout=30)
+# --- INTERFAZ ---
+st.title("🤖 OFM Processor - Modo Títulos")
+bot.infinity_polling()
