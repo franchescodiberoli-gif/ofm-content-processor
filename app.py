@@ -170,16 +170,18 @@ def procesar_cine(in_path, out_path, tipo="negro"):
         barra_bot = ColorClip(size=(W_final, bar_h), color=color).set_duration(clip.duration)
 
     elif tipo == "borroso":
-        # Escalar el video original al ancho final y tomar franjas arriba/abajo desenfocadas
-        clip_bg = VideoFileClip(in_path).resize((W_final, H_final))
-        sigma   = 25
-        barra_top = (clip_bg.crop(x1=0, y1=0, x2=W_final, y2=bar_h)
-                             .fl_image(lambda f: gaussian(f.astype(float), sigma=sigma, channel_axis=-1).astype(np.uint8))
-                             .set_duration(clip.duration))
-        barra_bot = (clip_bg.crop(x1=0, y1=H_final - bar_h, x2=W_final, y2=H_final)
-                             .fl_image(lambda f: gaussian(f.astype(float), sigma=sigma, channel_axis=-1).astype(np.uint8))
-                             .set_duration(clip.duration))
-        clip_bg.close()
+        from PIL import Image as PilImg, ImageFilter
+        # Tomar frame del centro del clip ya abierto (sin reabrir el archivo)
+        frame     = clip.get_frame(clip.duration / 2)
+        img_full  = PilImg.fromarray(frame).resize((W_final, H_final))
+        img_blur  = img_full.filter(ImageFilter.GaussianBlur(radius=25))
+        arr_blur  = np.array(img_blur)
+
+        franja_top = arr_blur[:bar_h, :]
+        franja_bot = arr_blur[H_final - bar_h:, :]
+
+        barra_top = ImageClip(franja_top).set_duration(clip.duration)
+        barra_bot = ImageClip(franja_bot).set_duration(clip.duration)
 
     else:  # negro (default)
         barra_top = ColorClip(size=(W_final, bar_h), color=[0,0,0]).set_duration(clip.duration)
