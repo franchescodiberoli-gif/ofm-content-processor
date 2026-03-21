@@ -137,9 +137,9 @@ def procesar_cliper(path1, path2, out_path):
 
 
 # ─────────────────────────────────────────────────────
-#  CINE
+#  CINE  (tipo: "negro" | "azul" | "borroso")
 # ─────────────────────────────────────────────────────
-def procesar_cine(in_path, out_path):
+def procesar_cine(in_path, out_path, tipo="negro"):
     p = get_params_cine()
     W_final, H_final = 1080, 1920
     bar_h   = int(H_final * 0.20)
@@ -163,8 +163,28 @@ def procesar_cine(in_path, out_path):
     if clip.audio:
         clip = clip.set_audio(clip.audio.fx(volumex, p["volume"]))
 
-    barra_top = ColorClip(size=(W_final, bar_h), color=[0,0,0]).set_duration(clip.duration)
-    barra_bot = ColorClip(size=(W_final, bar_h), color=[0,0,0]).set_duration(clip.duration)
+    # ── Barras según tipo ──
+    if tipo == "azul":
+        color = [30, 80, 180]
+        barra_top = ColorClip(size=(W_final, bar_h), color=color).set_duration(clip.duration)
+        barra_bot = ColorClip(size=(W_final, bar_h), color=color).set_duration(clip.duration)
+
+    elif tipo == "borroso":
+        # Escalar el video original al ancho final y tomar franjas arriba/abajo desenfocadas
+        clip_bg = VideoFileClip(in_path).resize((W_final, H_final))
+        sigma   = 25
+        barra_top = (clip_bg.crop(x1=0, y1=0, x2=W_final, y2=bar_h)
+                             .fl_image(lambda f: gaussian(f.astype(float), sigma=sigma, channel_axis=-1).astype(np.uint8))
+                             .set_duration(clip.duration))
+        barra_bot = (clip_bg.crop(x1=0, y1=H_final - bar_h, x2=W_final, y2=H_final)
+                             .fl_image(lambda f: gaussian(f.astype(float), sigma=sigma, channel_axis=-1).astype(np.uint8))
+                             .set_duration(clip.duration))
+        clip_bg.close()
+
+    else:  # negro (default)
+        barra_top = ColorClip(size=(W_final, bar_h), color=[0,0,0]).set_duration(clip.duration)
+        barra_bot = ColorClip(size=(W_final, bar_h), color=[0,0,0]).set_duration(clip.duration)
+
     barra_top = barra_top.set_position((0, 0))
     clip      = clip.set_position((0, bar_h))
     barra_bot = barra_bot.set_position((0, bar_h + H_video))
@@ -354,13 +374,13 @@ def _hilo_cliper(cid, status_id):
         user_data[cid]["procesando"] = False
 
 
-def _hilo_cine(cid, status_id):
+def _hilo_cine(cid, status_id, tipo):
     in_p  = f"VIDEO/in_{cid}.mp4"
     out_p = f"US/cine_{cid}.mp4"
     try:
         raw = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
         with open(in_p, "wb") as f: f.write(raw)
-        procesar_cine(in_p, out_p)
+        procesar_cine(in_p, out_p, tipo)
         with open(out_p, "rb") as v:
             bot.send_video(cid, v, caption="🎬 ¡Listo!", supports_streaming=True)
     except Exception as e:
@@ -441,9 +461,27 @@ def cb_cine(c):
         bot.send_message(cid, "❌ Primero sube un video."); return
     if user_data[cid].get("procesando"):
         bot.send_message(cid, "⏳ Ya hay un video procesándose."); return
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("⬛ Negro",   callback_data="cine_negro"))
+    markup.add(types.InlineKeyboardButton("🔵 Azul",    callback_data="cine_azul"))
+    markup.add(types.InlineKeyboardButton("🌫️ Borroso", callback_data="cine_borroso"))
+    bot.send_message(cid, "🎬 ¿Qué tipo de barras quieres?", reply_markup=markup)
+
+
+@bot.callback_query_handler(func=lambda c: c.data in ("cine_negro", "cine_azul", "cine_borroso"))
+def cb_cine_tipo(c):
+    cid  = c.message.chat.id
+    tipo = c.data.replace("cine_", "")
+    bot.answer_callback_query(c.id)
+    if "video_id" not in user_data.get(cid, {}):
+        bot.send_message(cid, "❌ Primero sube un video."); return
+    if user_data[cid].get("procesando"):
+        bot.send_message(cid, "⏳ Ya hay un video procesándose."); return
+
     user_data[cid]["procesando"] = True
-    status = bot.send_message(cid, "⏳ Procesando efecto cine...")
-    threading.Thread(target=_hilo_cine, args=(cid, status.message_id), daemon=True).start()
+    status = bot.send_message(cid, f"⏳ Procesando efecto cine {tipo}...")
+    threading.Thread(target=_hilo_cine, args=(cid, status.message_id, tipo), daemon=True).start()
 
 
 @bot.callback_query_handler(func=lambda c: c.data == "reconfigurar")
