@@ -513,6 +513,18 @@ def cb_nuevo(c):
     bot.send_message(cid, "📤 Envía tu nuevo video:")
 
 
+def _keep_alive():
+    import urllib.request, time
+    url = "https://ofm-content-proceapprgit-frrkbhnqtafsx48eumratf.streamlit.app/"
+    while True:
+        try:
+            urllib.request.urlopen(url, timeout=10)
+        except Exception:
+            pass
+        time.sleep(300)
+
+threading.Thread(target=_keep_alive, daemon=True).start()
+
 st.title("🤖 OFM Pro — Bot activo ✅")
 st.caption("El bot está corriendo.")
 bot.infinity_polling()
