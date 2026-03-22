@@ -477,4 +477,4 @@ def cb_nuevo(c):
 if __name__ == "__main__":
     st.title("🤖 OFM Pro — Bot activo ✅")
     st.caption("El bot está corriendo con Auto-Restart activo.")
-    bot.infinity_polling(non_stop=True, timeout=60)
+    bot.infinity_polling(timeout=60, long_polling_timeout=5)
