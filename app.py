@@ -306,39 +306,40 @@ def procesar_reconfigurar(in_path, out_path, cfg):
 
 
 # ─────────────────────────────────────────────────────
-#  HANDLERS
+#  HANDLERS (MANEJADORES)
 # ─────────────────────────────────────────────────────
 
 @bot.message_handler(commands=["start"])
 def cmd_start(m):
-    ()
-    user_data[m.chat.id] = {}
-    bot.send_message(m.chat.id,
-        "👋 Hola, soy tu bot de reciclaje de contenido.\n\n📤 Sube tu video para empezar.",
-        parse_mode="Markdown")
-
+    cid = m.chat.id
+    user_data[cid] = {"busy": False}
+    reset_timer(cid)  # Iniciamos el cronómetro de 5 min
+    send_start_flow(cid)
 
 @bot.message_handler(content_types=["video", "document"])
 def recibir_video(m):
-    ("accion")
-    cid     = m.chat.id
+    cid = m.chat.id
+    reset_timer(cid) # Resetear timer porque hubo actividad
+    
     file_id = m.video.file_id if m.content_type == "video" else m.document.file_id
-    estado  = user_data.get(cid, {})
+    estado = user_data.get(cid, {})
 
     # Esperando video 2 para cliper
     if estado.get("step") == "cliper_video2":
         user_data[cid]["video2_id"] = file_id
-        user_data[cid]["step"]      = None
+        user_data[cid]["step"] = None
+        user_data[cid]["busy"] = True # Bloqueamos restart porque va a procesar
         status = bot.send_message(cid, "⏳ Procesando cliper...")
         threading.Thread(target=_hilo_cliper, args=(cid, status.message_id), daemon=True).start()
         return
 
-    user_data[cid] = {"video_id": file_id, "procesando": False}
+    user_data[cid] = {"video_id": file_id, "procesando": False, "busy": False}
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("🎄 Plantilla Navidad",  callback_data="overlay_navidad"))
     markup.add(types.InlineKeyboardButton("✂️ Cliper",             callback_data="cliper"))
     markup.add(types.InlineKeyboardButton("🎬 Cine",               callback_data="cine"))
     markup.add(types.InlineKeyboardButton("⚙️ Reconfigurar",       callback_data="reconfigurar"))
+    
     bot.send_message(cid, "✅ *¡Video recibido!* ¿Qué quieres hacer?",
                      parse_mode="Markdown", reply_markup=markup)
 
@@ -346,16 +347,17 @@ def recibir_video(m):
 # ── Respuestas de texto (Reconfigurar) ──
 @bot.message_handler(func=lambda m: user_data.get(m.chat.id, {}).get("step") == "reconfigurar_pregunta")
 def respuesta_reconfigurar(m):
-  ("accion")
     cid = m.chat.id
+    reset_timer(cid) # Resetear timer
+    
     try:
         val = int(m.text.strip())
     except ValueError:
         bot.send_message(cid, "⚠️ Por favor escribe solo un número.")
         return
 
-    cfg  = user_data[cid].setdefault("reconfig", {})
-    idx  = user_data[cid].get("pregunta_idx", 0)
+    cfg = user_data[cid].setdefault("reconfig", {})
+    idx = user_data[cid].get("pregunta_idx", 0)
     key, _ = PREGUNTAS[idx]
     cfg[key] = bool(val) if key in ("doMirror","showEffect","doRotate","doblur","doBlurIn") else val
 
@@ -366,8 +368,8 @@ def respuesta_reconfigurar(m):
         _, texto = PREGUNTAS[idx]
         bot.send_message(cid, texto)
     else:
-        # Todas las preguntas respondidas → procesar
         user_data[cid]["step"] = None
+        user_data[cid]["busy"] = True # Bloqueamos restart porque va a procesar
         cfg = user_data[cid]["reconfig"]
         vidc = cfg.get("vidc", 1)
         bot.send_message(cid, f"✅ Configuración guardada. Voy a crear *{vidc}* video(s)...",
@@ -377,115 +379,22 @@ def respuesta_reconfigurar(m):
 
 
 # ─────────────────────────────────────────────────────
-#  HILOS
-# ─────────────────────────────────────────────────────
-
-def _hilo_navidad(cid, status_id):
-    in_p  = f"VIDEO/in_{cid}.mp4"
-    out_p = f"US/navidad_{cid}.mp4"
-    try:
-        raw = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
-        with open(in_p, "wb") as f: f.write(raw)
-        procesar_video(in_p, out_p)
-        with open(out_p, "rb") as v:
-            bot.send_video(cid, v, caption="🎄 ¡Listo!", supports_streaming=True)
-    except Exception as e:
-        bot.send_message(cid, f"❌ Error: {str(e)}")
-    finally:
-        for p in [in_p, out_p]:
-            if os.path.exists(p): os.remove(p)
-        try: bot.delete_message(cid, status_id)
-        except: pass
-        _menu_final(cid)
-        user_data[cid]["procesando"] = False
-
-
-def _hilo_cliper(cid, status_id):
-    in1, in2 = f"VIDEO/c1_{cid}.mp4", f"VIDEO/c2_{cid}.mp4"
-    out_p    = f"US/cliper_{cid}.mp4"
-    try:
-        raw1 = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
-        with open(in1, "wb") as f: f.write(raw1)
-        raw2 = bot.download_file(bot.get_file(user_data[cid]["video2_id"]).file_path)
-        with open(in2, "wb") as f: f.write(raw2)
-        procesar_cliper(in1, in2, out_p)
-        with open(out_p, "rb") as v:
-            bot.send_video(cid, v, caption="✂️ ¡Cliper listo!", supports_streaming=True)
-    except Exception as e:
-        bot.send_message(cid, f"❌ Error: {str(e)}")
-    finally:
-        for p in [in1, in2, out_p]:
-            if os.path.exists(p): os.remove(p)
-        try: bot.delete_message(cid, status_id)
-        except: pass
-        _menu_final(cid)
-        user_data[cid]["procesando"] = False
-
-
-def _hilo_cine(cid, status_id, tipo):
-    in_p  = f"VIDEO/in_{cid}.mp4"
-    out_p = f"US/cine_{cid}.mp4"
-    try:
-        raw = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
-        with open(in_p, "wb") as f: f.write(raw)
-        procesar_cine(in_p, out_p, tipo)
-        with open(out_p, "rb") as v:
-            bot.send_video(cid, v, caption="🎬 ¡Listo!", supports_streaming=True)
-    except Exception as e:
-        bot.send_message(cid, f"❌ Error: {str(e)}")
-    finally:
-        for p in [in_p, out_p]:
-            if os.path.exists(p): os.remove(p)
-        try: bot.delete_message(cid, status_id)
-        except: pass
-        _menu_final(cid)
-        user_data[cid]["procesando"] = False
-
-
-def _hilo_reconfigurar(cid, status_id):
-    cfg   = user_data[cid]["reconfig"]
-    vidc  = cfg.get("vidc", 1)
-    in_p  = f"VIDEO/in_{cid}.mp4"
-    try:
-        raw = bot.download_file(bot.get_file(user_data[cid]["video_id"]).file_path)
-        with open(in_p, "wb") as f: f.write(raw)
-
-        for i in range(vidc):
-            out_p = f"US/reconfig_{cid}_{i}.mp4"
-            procesar_reconfigurar(in_p, out_p, cfg)
-            with open(out_p, "rb") as v:
-                bot.send_video(cid, v, caption=f"⚙️ Video {i+1}/{vidc}", supports_streaming=True)
-            if os.path.exists(out_p): os.remove(out_p)
-
-    except Exception as e:
-        bot.send_message(cid, f"❌ Error: {str(e)}")
-    finally:
-        if os.path.exists(in_p): os.remove(in_p)
-        try: bot.delete_message(cid, status_id)
-        except: pass
-        _menu_final(cid)
-        user_data[cid]["procesando"] = False
-
-
-def _menu_final(cid):
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton("📤 Subir nuevo video", callback_data="nuevo_video"))
-    bot.send_message(cid, "✅ ¿Quieres procesar otro video?", reply_markup=markup)
-
-
-# ─────────────────────────────────────────────────────
-#  CALLBACKS
+#  CALLBACKS (BOTONES)
 # ─────────────────────────────────────────────────────
 
 @bot.callback_query_handler(func=lambda c: c.data == "overlay_navidad")
 def cb_overlay(c):
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
+    reset_timer(cid)
+
     if "video_id" not in user_data.get(cid, {}):
         bot.send_message(cid, "❌ Primero sube un video."); return
     if user_data[cid].get("procesando"):
         bot.send_message(cid, "⏳ Ya hay un video procesándose."); return
+    
     user_data[cid]["procesando"] = True
+    user_data[cid]["busy"] = True # Bloquear auto-restart
     status = bot.send_message(cid, "⏳ Procesando plantilla navideña...")
     threading.Thread(target=_hilo_navidad, args=(cid, status.message_id), daemon=True).start()
 
@@ -494,8 +403,11 @@ def cb_overlay(c):
 def cb_cliper(c):
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
+    reset_timer(cid)
+
     if "video_id" not in user_data.get(cid, {}):
         bot.send_message(cid, "❌ Primero sube un video."); return
+    
     user_data[cid]["step"] = "cliper_video2"
     bot.send_message(cid, "✅ Video 1 guardado.\n\n📤 Ahora sube el *segundo video*:",
                      parse_mode="Markdown")
@@ -505,11 +417,11 @@ def cb_cliper(c):
 def cb_cine(c):
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
+    reset_timer(cid)
+
     if "video_id" not in user_data.get(cid, {}):
         bot.send_message(cid, "❌ Primero sube un video."); return
-    if user_data[cid].get("procesando"):
-        bot.send_message(cid, "⏳ Ya hay un video procesándose."); return
-
+    
     markup = types.InlineKeyboardMarkup()
     markup.add(types.InlineKeyboardButton("⬛ Negro",   callback_data="cine_negro"))
     markup.add(types.InlineKeyboardButton("🔵 Azul",    callback_data="cine_azul"))
@@ -519,15 +431,16 @@ def cb_cine(c):
 
 @bot.callback_query_handler(func=lambda c: c.data in ("cine_negro", "cine_azul", "cine_borroso"))
 def cb_cine_tipo(c):
-    cid  = c.message.chat.id
+    cid = c.message.chat.id
     tipo = c.data.replace("cine_", "")
     bot.answer_callback_query(c.id)
-    if "video_id" not in user_data.get(cid, {}):
-        bot.send_message(cid, "❌ Primero sube un video."); return
+    reset_timer(cid)
+
     if user_data[cid].get("procesando"):
         bot.send_message(cid, "⏳ Ya hay un video procesándose."); return
 
     user_data[cid]["procesando"] = True
+    user_data[cid]["busy"] = True # Bloquear auto-restart
     status = bot.send_message(cid, f"⏳ Procesando efecto cine {tipo}...")
     threading.Thread(target=_hilo_cine, args=(cid, status.message_id, tipo), daemon=True).start()
 
@@ -536,27 +449,32 @@ def cb_cine_tipo(c):
 def cb_reconfigurar(c):
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
+    reset_timer(cid)
+
     if "video_id" not in user_data.get(cid, {}):
         bot.send_message(cid, "❌ Primero sube un video."); return
-    if user_data[cid].get("procesando"):
-        bot.send_message(cid, "⏳ Ya hay un video procesándose."); return
 
-    user_data[cid]["step"]         = "reconfigurar_pregunta"
+    user_data[cid]["step"] = "reconfigurar_pregunta"
     user_data[cid]["pregunta_idx"] = 0
-    user_data[cid]["reconfig"]     = {}
+    user_data[cid]["reconfig"] = {}
 
     _, texto = PREGUNTAS[0]
-    bot.send_message(cid,
-        "⚙️ *Vamos a configurar el procesamiento.*\n\nResponde cada pregunta con un número:\n\n" + texto,
-        parse_mode="Markdown")
+    bot.send_message(cid, "⚙️ *Vamos a configurar el procesamiento.*\n\nResponde cada pregunta con un número:\n\n" + texto,
+                     parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda c: c.data == "nuevo_video")
 def cb_nuevo(c):
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
-    user_data[cid] = {}
+    user_data[cid] = {"busy": False}
+    reset_timer(cid)
     bot.send_message(cid, "📤 Envía tu nuevo video:")
 
-st.title("🤖 OFM Pro — Bot activo ✅")
-st.caption("El bot está corriendo.")
-bot.infinity_polling()
+# ─────────────────────────────────────────────────────
+#  EJECUCIÓN FINAL
+# ─────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    st.title("🤖 OFM Pro — Bot activo ✅")
+    st.caption("El bot está corriendo con Auto-Restart activo.")
+    bot.infinity_polling(non_stop=True, timeout=60)
