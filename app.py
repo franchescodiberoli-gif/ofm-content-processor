@@ -277,7 +277,7 @@ def cmd_start(m):
 
 @bot.message_handler(content_types=["video", "document"])
 def recibir_video(m):
-    registrar_actividad()
+    registrar_actividad("accion")
     cid     = m.chat.id
     file_id = m.video.file_id if m.content_type == "video" else m.document.file_id
     estado  = user_data.get(cid, {})
@@ -303,7 +303,7 @@ def recibir_video(m):
 # ── Respuestas de texto (Reconfigurar) ──
 @bot.message_handler(func=lambda m: user_data.get(m.chat.id, {}).get("step") == "reconfigurar_pregunta")
 def respuesta_reconfigurar(m):
-    registrar_actividad()
+    registrar_actividad("accion")
     cid = m.chat.id
     try:
         val = int(m.text.strip())
@@ -436,7 +436,7 @@ def _menu_final(cid):
 
 @bot.callback_query_handler(func=lambda c: c.data == "overlay_navidad")
 def cb_overlay(c):
-    registrar_actividad()
+    registrar_actividad("accion")
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -450,7 +450,7 @@ def cb_overlay(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "cliper")
 def cb_cliper(c):
-    registrar_actividad()
+    registrar_actividad("accion")
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -462,7 +462,7 @@ def cb_cliper(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "cine")
 def cb_cine(c):
-    registrar_actividad()
+    registrar_actividad("accion")
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -479,7 +479,7 @@ def cb_cine(c):
 
 @bot.callback_query_handler(func=lambda c: c.data in ("cine_negro", "cine_azul", "cine_borroso"))
 def cb_cine_tipo(c):
-    registrar_actividad()
+    registrar_actividad("accion")
     cid  = c.message.chat.id
     tipo = c.data.replace("cine_", "")
     bot.answer_callback_query(c.id)
@@ -495,7 +495,7 @@ def cb_cine_tipo(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "reconfigurar")
 def cb_reconfigurar(c):
-    registrar_actividad()
+    registrar_actividad("accion")
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -515,7 +515,7 @@ def cb_reconfigurar(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "nuevo_video")
 def cb_nuevo(c):
-    registrar_actividad()
+    registrar_actividad("accion")
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     user_data[cid] = {}
@@ -523,26 +523,33 @@ def cb_nuevo(c):
 
 
 import time as _time
-last_activity = _time.time()
 
-def registrar_actividad():
-    global last_activity
-    last_activity = _time.time()
+# Estado de la conversación
+ultimo_evento = {"tiempo": _time.time(), "tipo": "inicio"}
+
+def registrar_actividad(tipo="accion"):
+    """tipo puede ser: 'bienvenida' o 'accion'"""
+    ultimo_evento["tiempo"] = _time.time()
+    ultimo_evento["tipo"]   = tipo
 
 def _keep_alive():
-    """Si pasan 5 min sin actividad, manda /start simulando al usuario."""
+    """
+    Solo manda /start si:
+    - El ultimo evento fue la bienvenida (usuario no hizo nada despues)
+    - Pasaron mas de 5 minutos desde ese mensaje
+    """
     INTERVALO = 5 * 60       # 5 minutos prueba, luego cambiar a 4*60*60
     OWNER_ID  = 6967043635
 
     _time.sleep(30)
     while True:
-        _time.sleep(INTERVALO)
-        inactivo = _time.time() - last_activity
-        if inactivo >= INTERVALO:
+        _time.sleep(60)  # revisar cada minuto
+        inactivo = _time.time() - ultimo_evento["tiempo"]
+        if ultimo_evento["tipo"] == "bienvenida" and inactivo >= INTERVALO:
             try:
                 bot.send_message(OWNER_ID, "/start")
             except Exception:
-                break
+                pass
 
 threading.Thread(target=_keep_alive, daemon=True).start()
 
