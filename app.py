@@ -567,27 +567,6 @@ def cb_nuevo(c):
 
 import time as _time
 
-# Estado de la conversación
-ultimo_evento = {"tiempo": _time.time(), "tipo": "inicio"}
-
-def registrar_actividad(tipo="accion"):
-    """tipo puede ser: 'bienvenida' o 'accion'"""
-    ultimo_evento["tiempo"] = _time.time()
-    ultimo_evento["tipo"]   = tipo
-
-def _keep_alive():
-    INTERVALO = 5 * 60   # 5 minutos prueba
-    OWNER_ID  = 6967043635
-
-    _time.sleep(60)
-    while True:
-        try:
-            inactivo = _time.time() - ultimo_evento["tiempo"]
-            if ultimo_evento["tipo"] == "bienvenida" and inactivo >= INTERVALO:
-                # Mandar bienvenida directamente sin esperar que el usuario mande /start
-                bot.send_message(OWNER_ID,
-                    "👋 Hola, soy tu bot de reciclaje de contenido.
-
 📤 Sube tu video para empezar.")
                 registrar_actividad("bienvenida")  # resetea el timer
         except Exception:
