@@ -479,7 +479,6 @@ def _menu_final(cid):
 
 @bot.callback_query_handler(func=lambda c: c.data == "overlay_navidad")
 def cb_overlay(c):
-    registrar_actividad("accion")
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -493,7 +492,6 @@ def cb_overlay(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "cliper")
 def cb_cliper(c):
-    registrar_actividad("accion")
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -505,7 +503,6 @@ def cb_cliper(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "cine")
 def cb_cine(c):
-    registrar_actividad("accion")
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -522,7 +519,6 @@ def cb_cine(c):
 
 @bot.callback_query_handler(func=lambda c: c.data in ("cine_negro", "cine_azul", "cine_borroso"))
 def cb_cine_tipo(c):
-    registrar_actividad("accion")
     cid  = c.message.chat.id
     tipo = c.data.replace("cine_", "")
     bot.answer_callback_query(c.id)
@@ -538,7 +534,6 @@ def cb_cine_tipo(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "reconfigurar")
 def cb_reconfigurar(c):
-    registrar_actividad("accion")
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     if "video_id" not in user_data.get(cid, {}):
@@ -558,22 +553,10 @@ def cb_reconfigurar(c):
 
 @bot.callback_query_handler(func=lambda c: c.data == "nuevo_video")
 def cb_nuevo(c):
-    registrar_actividad("accion")
     cid = c.message.chat.id
     bot.answer_callback_query(c.id)
     user_data[cid] = {}
     bot.send_message(cid, "📤 Envía tu nuevo video:")
-
-
-import time as _time
-
-📤 Sube tu video para empezar.")
-                registrar_actividad("bienvenida")  # resetea el timer
-        except Exception:
-            pass
-        _time.sleep(60)
-
-threading.Thread(target=_keep_alive, daemon=True).start()
 
 st.title("🤖 OFM Pro — Bot activo ✅")
 st.caption("El bot está corriendo.")
