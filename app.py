@@ -11,6 +11,49 @@ TOKEN = st.secrets["TELEGRAM_TOKEN"]
 bot = telebot.TeleBot(TOKEN)
 user_data = {}
 
+# =========================
+# AUTO-RESTART SYSTEM
+# =========================
+
+import threading
+
+user_timers = {}
+TIMEOUT = 300  # 5 minutos
+
+
+def stop_timer(user_id):
+    if user_id in user_timers:
+        try:
+            user_timers[user_id].cancel()
+        except:
+            pass
+        del user_timers[user_id]
+
+
+def schedule_restart(user_id):
+    def restart():
+        if user_id in user_data and not user_data[user_id].get("busy", False):
+            print(f"[AUTO] Restart para {user_id}")
+
+            # Ejecuta el mismo flujo que /start
+            send_start_flow(user_id)
+
+            # vuelve a programar
+            schedule_restart(user_id)
+
+    timer = threading.Timer(TIMEOUT, restart)
+    user_timers[user_id] = timer
+    timer.start()
+
+
+def reset_timer(user_id):
+    stop_timer(user_id)
+    schedule_restart(user_id)
+
+# =========================
+# AUTO-RESTART SYSTEM
+# =========================
+
 for folder in ["VIDEO", "US", "TEMP"]:
     os.makedirs(folder, exist_ok=True)
 
