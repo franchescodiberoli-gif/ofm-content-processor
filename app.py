@@ -11,15 +11,11 @@ TOKEN = st.secrets["TELEGRAM_TOKEN"]
 bot = telebot.TeleBot(TOKEN)
 user_data = {}
 
-# =========================
-# AUTO-RESTART SYSTEM
-# =========================
-
-import threading
-
+# ==========================================
+# SISTEMA DE AUTO-RESTART (TIMERS)
+# ==========================================
 user_timers = {}
 TIMEOUT = 300  # 5 minutos
-
 
 def stop_timer(user_id):
     if user_id in user_timers:
@@ -27,24 +23,26 @@ def stop_timer(user_id):
             user_timers[user_id].cancel()
         except:
             pass
-        del user_timers[user_id]
+        if user_id in user_timers: del user_timers[user_id]
 
+def send_start_flow(user_id):
+    """Lanza el menú principal"""
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("♻️ Nuevo Video", callback_data="nuevo_video"))
+    texto = "👋 *¡Hola Ricardo!*\n\nBot listo para triturar contenido. Sube tu video o usa el menú:"
+    bot.send_message(user_id, texto, reply_markup=markup, parse_mode="Markdown")
 
 def schedule_restart(user_id):
     def restart():
+        # Solo reinicia si NO estás procesando (busy=False)
         if user_id in user_data and not user_data[user_id].get("busy", False):
-            print(f"[AUTO] Restart para {user_id}")
-
-            # Ejecuta el mismo flujo que /start
             send_start_flow(user_id)
-
-            # vuelve a programar
             schedule_restart(user_id)
-
+            
+    stop_timer(user_id)
     timer = threading.Timer(TIMEOUT, restart)
     user_timers[user_id] = timer
     timer.start()
-
 
 def reset_timer(user_id):
     stop_timer(user_id)
@@ -470,11 +468,12 @@ def cb_nuevo(c):
     reset_timer(cid)
     bot.send_message(cid, "📤 Envía tu nuevo video:")
 
-# ─────────────────────────────────────────────────────
-#  EJECUCIÓN FINAL
-# ─────────────────────────────────────────────────────
-
+# ==========================================
+# EJECUCIÓN FINAL (CORREGIDA)
+# ==========================================
 if __name__ == "__main__":
     st.title("🤖 OFM Pro — Bot activo ✅")
     st.caption("El bot está corriendo con Auto-Restart activo.")
-    bot.infinity_polling(timeout=60, long_polling_timeout=5)
+    
+    # IMPORTANTE: Eliminado non_stop=True para evitar el error múltiple
+    bot.infinity_polling(timeout=60, long_polling_timeout=20)
