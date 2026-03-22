@@ -533,23 +533,23 @@ def registrar_actividad(tipo="accion"):
     ultimo_evento["tipo"]   = tipo
 
 def _keep_alive():
-    """
-    Solo manda /start si:
-    - El ultimo evento fue la bienvenida (usuario no hizo nada despues)
-    - Pasaron mas de 5 minutos desde ese mensaje
-    """
-    INTERVALO = 5 * 60       # 5 minutos prueba, luego cambiar a 4*60*60
+    INTERVALO = 5 * 60   # 5 minutos prueba
     OWNER_ID  = 6967043635
 
-    _time.sleep(30)
+    _time.sleep(60)
     while True:
-        _time.sleep(60)  # revisar cada minuto
-        inactivo = _time.time() - ultimo_evento["tiempo"]
-        if ultimo_evento["tipo"] == "bienvenida" and inactivo >= INTERVALO:
-            try:
-                bot.send_message(OWNER_ID, "/start")
-            except Exception:
-                pass
+        try:
+            inactivo = _time.time() - ultimo_evento["tiempo"]
+            if ultimo_evento["tipo"] == "bienvenida" and inactivo >= INTERVALO:
+                # Mandar bienvenida directamente sin esperar que el usuario mande /start
+                bot.send_message(OWNER_ID,
+                    "👋 Hola, soy tu bot de reciclaje de contenido.
+
+📤 Sube tu video para empezar.")
+                registrar_actividad("bienvenida")  # resetea el timer
+        except Exception:
+            pass
+        _time.sleep(60)
 
 threading.Thread(target=_keep_alive, daemon=True).start()
 
